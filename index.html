@@ -184,7 +184,7 @@
     return e;
   }
   const alertBox = (m) => { $('esito').innerHTML = `<div class="msg errore">✕ ${esc(m)}</div>`; $('secEsito').classList.remove('hidden'); $('btnPubblica').disabled = true; };
-  const guard = (fn) => async (...a) => { try { return await fn(...a); } catch (err) { log(`Errore: ${err.message}`); alertBox(err.message); } };
+  const guard = (fn) => async (...a) => { try { return await fn(...a); } catch (err) { log(`Errore: ${err.message}`); alertBox(err.message); return { errore: err.message }; } };
 
   // interfaccia
   $('drop').onclick = () => $('pick').click();
@@ -209,13 +209,16 @@
     return JSON.parse(await new Response(s).text());
   };
   window.fdAdmin = {
-    versione: 2,
+    versione: 3,
     pronto: () => !!store.get(),
     stato: guard(stato),
     svuota: () => { buffer = ''; return 0; },
     aggiungi: (pezzo) => { buffer += pezzo; return buffer.length; },
     verifica: guard(async () => { const e = await verifica({ dati: await leggiBuffer() }); return { valido: e.valido, ok: e.ok, avvisi: e.avvisi, errori: e.errori, evento: e.evento, scriverebbe: e.scriverebbe }; }),
     pubblica: guard(async (ev = 'auto') => { const e = await pubblica({ dati: await leggiBuffer() }, ev, 'agente Claude (browser integrato)'); buffer = ''; return { status: e.status, scritto: e.scritto, ok: e.ok, avvisi: e.avvisi, errori: e.errori, evento: e.evento }; }),
+    // dati depositati dall'agente nella cassetta (fdAgente.invia sulla pagina della lega)
+    verificaInbox: guard(async (id) => { const e = await verifica({ inbox: id }); return { valido: e.valido, ok: e.ok, avvisi: e.avvisi, errori: e.errori, evento: e.evento, scriverebbe: e.scriverebbe }; }),
+    pubblicaInbox: guard(async (id, ev = 'auto') => { const e = await pubblica({ inbox: id }, ev, 'agente Claude (browser integrato)'); return { status: e.status, scritto: e.scritto, ok: e.ok, avvisi: e.avvisi, errori: e.errori, evento: e.evento }; }),
     evento: guard(async (giornata, tipo) => { const e = await evento({ giornata, tipo }, 'agente Claude (browser integrato)'); return { status: e.status, evento: e.evento, errori: e.errori }; }),
   };
 

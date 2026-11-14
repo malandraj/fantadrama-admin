@@ -33,7 +33,7 @@
   };
 
   window.fdAgente = {
-    versione: 1,
+    versione: 2,
     scaricati: () => dl.map((d) => ({ nome: d.nome, kb: Math.round(d.buf.length / 1024), ora: d.ora })),
     svuota: () => { dl.length = 0; return 0; },
     // legge tutti gli Excel intercettati: { dati, riepilogo } — i controlli veri li rifà il server
@@ -57,6 +57,18 @@
       return { pezzi: window.__fdPezzi.length, caratteri: b.length };
     },
     pezzo: (i) => window.__fdPezzi[i],
+    // deposita i dati letti nella cassetta di Supabase (solo scrittura, chiave pubblica). Restituisce l'id da dare alla pagina admin.
+    invia: async () => {
+      const id = crypto.randomUUID ? crypto.randomUUID() : ([1e7] + -1e3 + -4e3 + -8e3 + -1e11).replace(/[018]/g, (c) => (c ^ crypto.getRandomValues(new Uint8Array(1))[0] & 15 >> c / 4).toString(16));
+      const payload = await gz(JSON.stringify(window.__fdDati || {}));
+      const r = await fetch('https://omjgkgzbzgzagtafxatx.supabase.co/rest/v1/import_inbox', {
+        method: 'POST',
+        headers: { apikey: 'sb_publishable_L_XtsavtG6tfv9Q67Zyokw_OZnO5JPY', 'content-type': 'application/json', prefer: 'return=minimal' },
+        body: JSON.stringify({ id, payload, nota: 'agente ' + new Date().toISOString() }),
+      });
+      if (!r.ok) throw new Error('deposito fallito: ' + r.status + ' ' + (await r.text()).slice(0, 200));
+      return { id, caratteri: payload.length };
+    },
   };
 })();
 /* FantaDrama — importatore export "formazioni" di Leghe Fantacalcio, in JavaScript.
