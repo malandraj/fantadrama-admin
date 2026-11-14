@@ -201,15 +201,22 @@
 
   // interfaccia per l'agente Claude: i dati letti in pagina su Leghe Fantacalcio arrivano qui a pezzi,
   // poi verifica/pubblica passano dalla stessa funzione e dagli stessi controlli. Il codice admin non esce mai da questa pagina.
+  // i pezzi arrivano come gzip+base64 (fdAgente.pacchetto sulla pagina della lega)
   let buffer = '';
+  const leggiBuffer = async () => {
+    const bin = atob(buffer); const u = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i);
+    const s = new Blob([u]).stream().pipeThrough(new DecompressionStream('gzip'));
+    return JSON.parse(await new Response(s).text());
+  };
   window.fdAdmin = {
+    versione: 2,
     pronto: () => !!store.get(),
     stato: guard(stato),
     svuota: () => { buffer = ''; return 0; },
     aggiungi: (pezzo) => { buffer += pezzo; return buffer.length; },
-    verifica: guard(async () => { const e = await verifica({ dati: JSON.parse(buffer) }); return { valido: e.valido, ok: e.ok, avvisi: e.avvisi, errori: e.errori, evento: e.evento }; }),
-    pubblica: guard(async (ev = 'auto') => { const e = await pubblica({ dati: JSON.parse(buffer) }, ev, 'agente Claude (browser integrato)'); buffer = ''; return { status: e.status, scritto: e.scritto, errori: e.errori, evento: e.evento }; }),
-    evento: guard((giornata, tipo) => evento({ giornata, tipo }, 'agente Claude (browser integrato)')),
+    verifica: guard(async () => { const e = await verifica({ dati: await leggiBuffer() }); return { valido: e.valido, ok: e.ok, avvisi: e.avvisi, errori: e.errori, evento: e.evento, scriverebbe: e.scriverebbe }; }),
+    pubblica: guard(async (ev = 'auto') => { const e = await pubblica({ dati: await leggiBuffer() }, ev, 'agente Claude (browser integrato)'); buffer = ''; return { status: e.status, scritto: e.scritto, ok: e.ok, avvisi: e.avvisi, errori: e.errori, evento: e.evento }; }),
+    evento: guard(async (giornata, tipo) => { const e = await evento({ giornata, tipo }, 'agente Claude (browser integrato)'); return { status: e.status, evento: e.evento, errori: e.errori }; }),
   };
 
   if (!store.get()) $('secToken').classList.remove('hidden');
