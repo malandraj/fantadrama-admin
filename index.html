@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FantaDrama · Admin dati lega</title>
+<style>
+  :root { --paper:#F4F1E9; --raised:#FDFCF8; --sunken:#EAE6DC; --line:#D3D6C9; --ink:#192D28; --muted:#6A746B; --acid:#C8E359; --err:#9A322B; --warn:#8A6A12; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--paper); color:var(--ink); font:15px/1.5 -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", sans-serif; }
+  main { max-width: 760px; margin: 0 auto; padding: 32px 20px 64px; }
+  header { display:flex; align-items:baseline; justify-content:space-between; gap:12px; margin-bottom:24px; }
+  .brand { font-weight:900; font-size:22px; letter-spacing:-1px; }
+  .brand small { font-weight:700; font-size:10px; letter-spacing:1px; text-transform:uppercase; color:var(--muted); margin-left:8px; }
+  h2 { font-weight:700; font-size:11px; line-height:12px; letter-spacing:1px; text-transform:uppercase; color:var(--muted); margin:0 0 12px; }
+  section { background:var(--raised); border:1px solid var(--line); border-radius:16px; padding:20px; margin-bottom:16px; }
+  .grid { display:grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap:12px; }
+  .kv b { display:block; font-size:18px; }
+  .kv span { font-size:12px; color:var(--muted); }
+  button { font-family:inherit; font-weight:700; font-size:15px; line-height:1; border-radius:999px; border:1px solid var(--ink); background:var(--ink); color:var(--paper); padding:12px 20px; cursor:pointer; transition: transform .12s cubic-bezier(.23,1,.32,1), opacity .2s; }
+  button:active { transform: scale(.97); }
+  button.secondary { background:transparent; color:var(--ink); }
+  button.accent { background:var(--acid); border-color:var(--acid); color:var(--ink); }
+  button:disabled { opacity:.35; cursor:default; transform:none; }
+  .row { display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
+  input, select { font:inherit; padding:10px 12px; border-radius:8px; border:1px solid var(--line); background:var(--paper); color:var(--ink); }
+  #drop { border:2px dashed var(--line); border-radius:12px; padding:28px 16px; text-align:center; color:var(--muted); cursor:pointer; transition: border-color .2s, background .2s; }
+  #drop.over { border-color:var(--ink); background:var(--sunken); }
+  ul.files { list-style:none; padding:0; margin:12px 0; }
+  ul.files li { display:flex; justify-content:space-between; gap:8px; padding:6px 0; border-bottom:1px solid var(--sunken); font-size:14px; }
+  ul.files li span { color:var(--muted); }
+  .msg { padding:8px 12px; border-radius:8px; margin:6px 0; font-size:14px; }
+  .ok { background:#EEF5D2; } .avviso { background:#F6EBC8; color:var(--warn); } .errore { background:#F3DCD9; color:var(--err); }
+  .note { font-size:12px; color:var(--muted); margin-top:8px; }
+  #log { font:12px/1.5 ui-monospace, Menlo, monospace; color:var(--muted); white-space:pre-wrap; max-height:200px; overflow:auto; }
+  .hidden { display:none; }
+  .pill { display:inline-block; padding:4px 10px; border-radius:999px; background:var(--ink); color:var(--acid); font-weight:700; font-size:13px; }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <div class="brand">FantaDrama<small>Admin dati lega</small></div>
+    <button class="secondary" id="btnStato">Aggiorna</button>
+  </header>
+
+  <section id="secToken" class="hidden">
+    <h2>Accesso</h2>
+    <p>Incolla il codice admin (lo stesso del secret <code>ADMIN_TOKEN</code> su Supabase). Resta salvato solo in questo browser.</p>
+    <div class="row"><input id="token" type="password" placeholder="codice admin" style="flex:1; min-width:240px" autocomplete="off"><button id="btnToken">Salva</button></div>
+  </section>
+
+  <section>
+    <h2>Stato</h2>
+    <div class="grid" id="stato"><div class="kv"><b>…</b><span>caricamento</span></div></div>
+  </section>
+
+  <section>
+    <h2>1 · Carica gli Excel di Leghe Fantacalcio</h2>
+    <div id="drop">Trascina qui i file (formazioni della giornata, classifica, calendario, rose)<br>oppure clicca per sceglierli</div>
+    <input type="file" id="pick" multiple accept=".xlsx" class="hidden">
+    <ul class="files" id="files"></ul>
+    <div class="row">
+      <button id="btnVerifica" disabled>Verifica</button>
+      <button class="secondary" id="btnSvuota" disabled>Svuota</button>
+    </div>
+  </section>
+
+  <section id="secEsito" class="hidden">
+    <h2>2 · Esito dei controlli</h2>
+    <div id="esito"></div>
+    <div class="row" style="margin-top:12px">
+      <label class="row" style="gap:6px"><input type="checkbox" id="chkEvento" checked> cambia l'evento attivo come proposto</label>
+    </div>
+    <div class="row" style="margin-top:12px"><button class="accent" id="btnPubblica" disabled>Pubblica nell'app</button></div>
+    <p class="note">Si pubblica solo se tutti i controlli passano. I presidenti vedono i nuovi dati alla prossima apertura dell'app.</p>
+  </section>
+
+  <section>
+    <h2>Cambia evento a mano</h2>
+    <div class="row">
+      <select id="evTipo"><option value="vigilia">Vigilia</option><option value="post">Post-partita</option></select>
+      <span>della</span><input id="evG" type="number" min="1" max="40" style="width:80px"><span>ª giornata</span>
+      <button class="secondary" id="btnEvento">Imposta</button>
+    </div>
+    <p class="note">La vigilia si apre quando la giornata successiva comincia a breve. Il post-partita richiede le formazioni della giornata già caricate.</p>
+  </section>
+
+  <section>
+    <h2>Registro</h2>
+    <div id="log"></div>
+  </section>
+</main>
+
+<script>
+(() => {
+  const FN = 'https://omjgkgzbzgzagtafxatx.supabase.co/functions/v1/admin-import';
+  const KEY = 'fd_admin_token';
+  const $ = (id) => document.getElementById(id);
+  const store = { get: () => { try { return localStorage.getItem(KEY) || ''; } catch { return ''; } }, set: (v) => { try { localStorage.setItem(KEY, v); } catch {} } };
+  let files = []; // { nome, base64, dimensione }
+  let ultimaVerifica = null; // { input, esito }
+
+  const log = (s) => { const t = new Date().toLocaleTimeString('it-IT'); $('log').textContent = `${t}  ${s}\n` + $('log').textContent; };
+  const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  const nomeEv = (e) => e ? `${e.tipo === 'post' ? 'Post-partita' : 'Vigilia'} ${e.giornata}ª` : '—';
+
+  async function call(body) {
+    const token = store.get();
+    if (!token) { $('secToken').classList.remove('hidden'); throw new Error('Manca il codice admin.'); }
+    const r = await fetch(FN, { method: 'POST', headers: { 'content-type': 'application/json', 'x-admin-token': token }, body: JSON.stringify(body) });
+    const j = await r.json().catch(() => ({ error: 'risposta_illeggibile' }));
+    if (r.status === 401) { $('secToken').classList.remove('hidden'); throw new Error('Codice admin non valido.'); }
+    if (!r.ok && r.status !== 422) throw new Error(`${j.error || r.status}${j.dettaglio ? ': ' + j.dettaglio : ''}`);
+    return { status: r.status, ...j };
+  }
+
+  async function stato() {
+    const s = await call({ azione: 'stato' });
+    const agg = s.aggiornato ? new Date(s.aggiornato).toLocaleString('it-IT', { dateStyle: 'medium', timeStyle: 'short' }) : '—';
+    $('stato').innerHTML = [
+      [`<span class="pill">${esc(nomeEv(s.evento))}</span>`, 'evento attivo nell\'app'],
+      [esc(s.giornate.length ? `1–${Math.max(...s.giornate)}` : '—'), 'giornate con formazioni'],
+      [esc(s.classificaDopo ? `dopo la ${s.classificaDopo}ª` : '—'), 'classifica'],
+      [esc(`${s.prossima}ª`), esc(s.prossimaSerieA ? `prossima · ${s.prossimaSerieA}` : 'prossima giornata')],
+      [esc(agg), esc(`ultimo aggiornamento${s.aggiornatoDa ? ' · ' + s.aggiornatoDa : ''}`)],
+      [esc(s.indisponibili ? `${s.indisponibili.giornataSerieA}ª Serie A` : '—'), 'indisponibili'],
+    ].map(([b, sp]) => `<div class="kv"><b>${b}</b><span>${sp}</span></div>`).join('');
+    $('evG').value = s.prossima;
+    return s;
+  }
+
+  function renderFiles() {
+    $('files').innerHTML = files.map((f) => `<li>${esc(f.nome)}<span>${Math.round(f.dimensione / 1024)} KB</span></li>`).join('');
+    $('btnVerifica').disabled = $('btnSvuota').disabled = !files.length;
+  }
+
+  const toB64 = (file) => new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(String(r.result).split(',')[1]); r.onerror = rej; r.readAsDataURL(file); });
+  async function aggiungiFile(list) {
+    for (const f of list) {
+      if (!/\.xlsx$/i.test(f.name)) { log(`Ignorato ${f.name}: non è un .xlsx`); continue; }
+      files = files.filter((x) => x.nome !== f.name).concat({ nome: f.name, base64: await toB64(f), dimensione: f.size });
+    }
+    renderFiles(); $('secEsito').classList.add('hidden');
+  }
+
+  function renderEsito(e) {
+    const righe = [
+      ...(e.ok || []).map((m) => `<div class="msg ok">✓ ${esc(m)}</div>`),
+      ...(e.avvisi || []).map((m) => `<div class="msg avviso">! ${esc(m)}</div>`),
+      ...(e.errori || []).map((m) => `<div class="msg errore">✕ ${esc(m)}</div>`),
+    ];
+    const ev = e.evento || {};
+    righe.push(`<p>Evento: <b>${esc(nomeEv(ev.attuale))}</b>${ev.nuovo ? ` → <b>${esc(nomeEv(ev.nuovo))}</b>` : ' (invariato)'}</p>`);
+    if (e.scriverebbe) righe.push(`<p class="note">Documenti da aggiornare: ${esc(e.scriverebbe.join(', ') || 'nessuno')}</p>`);
+    if (e.scritto) righe.push(`<p><b>Pubblicato.</b> Aggiornati: ${esc(e.scritto.join(', '))}</p>`);
+    $('esito').innerHTML = righe.join('');
+    $('secEsito').classList.remove('hidden');
+    $('chkEvento').parentElement.classList.toggle('hidden', !ev.nuovo);
+  }
+
+  async function verifica(input) {
+    const e = await call({ azione: 'verifica', ...input });
+    ultimaVerifica = { input, esito: e };
+    renderEsito(e);
+    $('btnPubblica').disabled = !e.valido;
+    log(`Verifica: ${e.valido ? 'tutto ok' : 'ci sono errori'} (${(e.file || []).map((f) => f.tipo).join(', ')})`);
+    return e;
+  }
+
+  async function pubblica(input, evento, origine) {
+    const e = await call({ azione: 'pubblica', ...input, evento, origine });
+    renderEsito(e);
+    $('btnPubblica').disabled = true;
+    log(e.status === 422 ? 'Pubblicazione rifiutata: controlli non superati.' : `Pubblicato: ${e.scritto.join(', ')}`);
+    if (e.status !== 422) { files = []; renderFiles(); await stato(); }
+    return e;
+  }
+
+  async function evento(ev, origine) {
+    const e = await call({ azione: 'evento', evento: ev, origine });
+    if (e.status === 422) { log(`Evento non cambiato: ${e.errori.join(' ')}`); alertBox(e.errori.join(' ')); }
+    else { log(`Evento attivo: ${nomeEv(e.evento)}`); await stato(); }
+    return e;
+  }
+  const alertBox = (m) => { $('esito').innerHTML = `<div class="msg errore">✕ ${esc(m)}</div>`; $('secEsito').classList.remove('hidden'); $('btnPubblica').disabled = true; };
+  const guard = (fn) => async (...a) => { try { return await fn(...a); } catch (err) { log(`Errore: ${err.message}`); alertBox(err.message); } };
+
+  // interfaccia
+  $('drop').onclick = () => $('pick').click();
+  $('pick').onchange = (e) => aggiungiFile(e.target.files);
+  ['dragenter', 'dragover'].forEach((t) => $('drop').addEventListener(t, (e) => { e.preventDefault(); $('drop').classList.add('over'); }));
+  ['dragleave', 'drop'].forEach((t) => $('drop').addEventListener(t, (e) => { e.preventDefault(); $('drop').classList.remove('over'); }));
+  $('drop').addEventListener('drop', (e) => aggiungiFile(e.dataTransfer.files));
+  $('btnSvuota').onclick = () => { files = []; renderFiles(); $('secEsito').classList.add('hidden'); };
+  $('btnVerifica').onclick = guard(() => verifica({ files: files.map(({ nome, base64 }) => ({ nome, base64 })) }));
+  $('btnPubblica').onclick = guard(() => pubblica(ultimaVerifica.input, $('chkEvento').checked ? 'auto' : 'no', 'pagina admin'));
+  $('btnEvento').onclick = guard(() => evento({ giornata: +$('evG').value, tipo: $('evTipo').value }, 'pagina admin (manuale)'));
+  $('btnStato').onclick = guard(async () => { $('secEsito').classList.add('hidden'); await stato(); });
+  $('btnToken').onclick = guard(async () => { store.set($('token').value.trim()); $('token').value = ''; $('secToken').classList.add('hidden'); $('secEsito').classList.add('hidden'); await stato(); log('Codice admin salvato in questo browser.'); });
+
+  // interfaccia per l'agente Claude: i dati letti in pagina su Leghe Fantacalcio arrivano qui a pezzi,
+  // poi verifica/pubblica passano dalla stessa funzione e dagli stessi controlli. Il codice admin non esce mai da questa pagina.
+  let buffer = '';
+  window.fdAdmin = {
+    pronto: () => !!store.get(),
+    stato: guard(stato),
+    svuota: () => { buffer = ''; return 0; },
+    aggiungi: (pezzo) => { buffer += pezzo; return buffer.length; },
+    verifica: guard(async () => { const e = await verifica({ dati: JSON.parse(buffer) }); return { valido: e.valido, ok: e.ok, avvisi: e.avvisi, errori: e.errori, evento: e.evento }; }),
+    pubblica: guard(async (ev = 'auto') => { const e = await pubblica({ dati: JSON.parse(buffer) }, ev, 'agente Claude (browser integrato)'); buffer = ''; return { status: e.status, scritto: e.scritto, errori: e.errori, evento: e.evento }; }),
+    evento: guard((giornata, tipo) => evento({ giornata, tipo }, 'agente Claude (browser integrato)')),
+  };
+
+  if (!store.get()) $('secToken').classList.remove('hidden');
+  else guard(stato)();
+})();
+</script>
+</body>
+</html>
