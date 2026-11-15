@@ -87,6 +87,12 @@
   </section>
 
   <section>
+    <h2>Inviti</h2>
+    <p class="note" style="margin-top:0">Se un presidente cambia telefono o reinstalla l'app, il suo invito risulta «già usato». Liberalo qui e potrà rientrare con lo stesso link: conferenze e memoria di Ceretti restano.</p>
+    <ul class="files" id="inviti"><li>…</li></ul>
+  </section>
+
+  <section>
     <h2>Registro</h2>
     <div id="log"></div>
   </section>
@@ -183,6 +189,17 @@
     else { log(`Evento attivo: ${nomeEv(e.evento)}`); await stato(); }
     return e;
   }
+  async function inviti() {
+    const r = await call({ azione: 'inviti' });
+    const fmt = (d) => d ? new Date(d).toLocaleDateString('it-IT', { day: 'numeric', month: 'short' }) : '';
+    $('inviti').innerHTML = r.inviti.map((i) => `<li style="align-items:center">${esc(i.nome)}<span class="row" style="gap:12px">${i.usato ? `entrato il ${esc(fmt(i.dal))} <button class="secondary" data-team="${esc(i.team)}" data-nome="${esc(i.nome)}" style="padding:8px 14px;font-size:13px">Libera</button>` : (i.invito ? 'non ancora usato' : 'senza invito')}</span></li>`).join('');
+    $('inviti').querySelectorAll('button[data-team]').forEach((b) => b.onclick = guard(async () => {
+      if (!confirm(`Liberare l'invito di ${b.dataset.nome}? Il telefono attuale perderà l'accesso finché non rientra col link.`)) return;
+      await call({ azione: 'liberaInvito', team: b.dataset.team });
+      log(`Invito di ${b.dataset.nome} liberato.`);
+      await inviti();
+    }));
+  }
   const alertBox = (m) => { $('esito').innerHTML = `<div class="msg errore">✕ ${esc(m)}</div>`; $('secEsito').classList.remove('hidden'); $('btnPubblica').disabled = true; };
   const guard = (fn) => async (...a) => { try { return await fn(...a); } catch (err) { log(`Errore: ${err.message}`); alertBox(err.message); return { errore: err.message }; } };
 
@@ -196,8 +213,8 @@
   $('btnVerifica').onclick = guard(() => verifica({ files: files.map(({ nome, base64 }) => ({ nome, base64 })) }));
   $('btnPubblica').onclick = guard(() => pubblica(ultimaVerifica.input, $('chkEvento').checked ? 'auto' : 'no', 'pagina admin'));
   $('btnEvento').onclick = guard(() => evento({ giornata: +$('evG').value, tipo: $('evTipo').value }, 'pagina admin (manuale)'));
-  $('btnStato').onclick = guard(async () => { $('secEsito').classList.add('hidden'); await stato(); });
-  $('btnToken').onclick = guard(async () => { store.set($('token').value.trim()); $('token').value = ''; $('secToken').classList.add('hidden'); $('secEsito').classList.add('hidden'); await stato(); log('Codice admin salvato in questo browser.'); });
+  $('btnStato').onclick = guard(async () => { $('secEsito').classList.add('hidden'); await stato(); await inviti(); });
+  $('btnToken').onclick = guard(async () => { store.set($('token').value.trim()); $('token').value = ''; $('secToken').classList.add('hidden'); $('secEsito').classList.add('hidden'); await stato(); await inviti(); log('Codice admin salvato in questo browser.'); });
 
   // interfaccia per l'agente Claude: i dati letti in pagina su Leghe Fantacalcio arrivano qui a pezzi,
   // poi verifica/pubblica passano dalla stessa funzione e dagli stessi controlli. Il codice admin non esce mai da questa pagina.
@@ -209,7 +226,7 @@
     return JSON.parse(await new Response(s).text());
   };
   window.fdAdmin = {
-    versione: 3,
+    versione: 4,
     pronto: () => !!store.get(),
     stato: guard(stato),
     svuota: () => { buffer = ''; return 0; },
@@ -223,7 +240,7 @@
   };
 
   if (!store.get()) $('secToken').classList.remove('hidden');
-  else guard(stato)();
+  else guard(async () => { await stato(); await inviti(); })();
 })();
 </script>
 </body>
