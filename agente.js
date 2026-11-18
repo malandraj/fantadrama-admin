@@ -33,7 +33,7 @@
   };
 
   window.fdAgente = {
-    versione: 2,
+    versione: 3,
     scaricati: () => dl.map((d) => ({ nome: d.nome, kb: Math.round(d.buf.length / 1024), ora: d.ora })),
     svuota: () => { dl.length = 0; return 0; },
     // legge tutti gli Excel intercettati: { dati, riepilogo } — i controlli veri li rifà il server
@@ -43,7 +43,11 @@
         const tipo = await fdRiconosci(d.buf);
         if (tipo === 'formazioni') { const f = await fdImportFormazioni(d.buf, d.nome); dati.formazioni.push({ giornata: f.giornata, partite: f.partite }); riepilogo.push(`formazioni g${f.giornata}: ${f.partite.length} partite, controlli ${f.ok ? 'ok' : 'NON ok'}`); }
         else if (tipo === 'classifica') { dati.classifica = await fdImportClassifica(d.buf, d.nome); riepilogo.push(`classifica dopo la ${dati.classifica.giornata}ª`); }
-        else if (tipo === 'calendario') { dati.calendario = await fdImportCalendario(d.buf, d.nome); riepilogo.push(`calendario: ${dati.calendario.length} partite, ${dati.calendario.filter((c) => c.risultato).length} risultati`); }
+        else if (tipo === 'calendario') {
+          const cal = await fdImportCalendarioCompleto(d.buf, d.nome);
+          (dati.calendari = dati.calendari || []).push(cal);
+          riepilogo.push(`calendario ${cal.competizione}: ${cal.partite.filter((c) => !c.riposo).length} partite, ${cal.partite.filter((c) => c.riposo).length} riposi, ${cal.partite.filter((c) => c.risultato).length} risultati`);
+        }
         else if (tipo === 'rose') { dati.rose = await fdImportRose(d.buf, d.nome); riepilogo.push(`rose: ${Object.keys(dati.rose).length} squadre`); }
         else riepilogo.push(`${d.nome}: non riconosciuto`);
       }
@@ -223,26 +227,57 @@
     return { giornata: md, partite, controlli, ok: controlli.every((c) => c.ok) };
   }
 
-  // Calendario (come parse_calendar): due blocchi di colonne, A-E e G-K
-  async function fdImportCalendario(buf, fname) {
-    const { at, maxRow } = await readSheet(buf);
-    const out = [];
-    for (const c0 of [1, 7]) {
-      let cur = null;
-      for (let r = 1; r <= maxRow; r++) {
-        const v = at(r, c0).v;
-        if (typeof v === "string" && v.includes("Giornata lega")) {
-          cur = { giornata: parseInt(v.match(/^(\d+)/)[1], 10), serie_a: at(r, c0 + 2).v };
-          continue;
-        }
-        if (cur && typeof v === "string" && at(r, c0 + 3).v) {
-          const res = at(r, c0 + 4).v;
-          out.push({ giornata: cur.giornata, giornata_serie_a: cur.serie_a, casa: clean(v), trasferta: clean(at(r, c0 + 3).v),
-            risultato: isScore(res) ? res : null, ref: `${fname}!${colLet(c0)}${r}` });
-        }
+  // Calendario: blocchi affiancati che iniziano con "Nª Giornata lega" (o un'etichetta di turno, es. coppe a eliminazione)
+  // e la cella "Nª Giornata serie a". Campionato: casa | punti | punti | trasferta | risultato.
+  // Coppe a gironi: prima la lettera del girone, e righe "Riposa <squadra>". Le sezioni ("Fase a Gironi", ...) stanno su una riga a sé.
+  function parseCalendario(at, maxRow, maxCol, fname) {
+    const str = (v) => (typeof v === "string" ? v.trim() : "");
+    const num = (v) => (typeof v === "number" ? v : Number.isFinite(parseFloat(v)) ? parseFloat(v) : null);
+    const competizione = str(at(1, 1).v).replace(/^Calendario\s+/i, "") || null;
+    const partite = [];
+    let fase = null, blocchi = [], seq = 0;
+    for (let r = 3; r <= maxRow; r++) {
+      const sa = [];
+      for (let c = 1; c <= maxCol; c++) if (/giornata serie a/i.test(str(at(r, c).v))) sa.push(c);
+      if (sa.length) {
+        blocchi = sa.map((cs) => {
+          let c0 = cs - 1; while (c0 > 1 && !str(at(r, c0).v)) c0--;
+          const lab = str(at(r, c0).v), m = lab.match(/^(\d+)ª\s*Giornata lega/i);
+          return { c0, giornata: m ? +m[1] : null, turno: m ? null : lab || null, serie_a: at(r, cs).v, sa: parseInt(str(at(r, cs).v), 10) || null };
+        });
+        for (const b of blocchi) { if (b.giornata == null) b.giornata = ++seq; else seq = Math.max(seq, b.giornata); }
+        continue;
+      }
+      const pieni = []; for (let c = 1; c <= maxCol; c++) if (at(r, c).v != null && at(r, c).v !== "") pieni.push(c);
+      const a = str(at(r, 1).v);
+      if (pieni.length === 1 && pieni[0] === 1 && a && !/^riposa\s/i.test(a) && !/^https?:/i.test(a)) { fase = a; blocchi = []; continue; }
+      for (const b of blocchi) {
+        let c = b.c0, girone = null;
+        const v0 = str(at(r, c).v);
+        if (v0 && v0.length <= 2 && str(at(r, c + 1).v)) { girone = v0; c++; }
+        const casa = str(at(r, c).v);
+        if (!casa) continue;
+        const base = { giornata: b.giornata, giornata_serie_a: b.serie_a, sa: b.sa,
+          ...(fase ? { fase } : {}), ...(b.turno ? { turno: b.turno } : {}), ...(girone ? { girone } : {}) };
+        const ref = `${fname}!${colLet(c)}${r}`;
+        const rip = casa.match(/^Riposa\s+(.+)$/i);
+        if (rip) { partite.push({ ...base, casa: clean(rip[1]), trasferta: null, riposo: true, risultato: null, ref }); continue; }
+        if (!str(at(r, c + 3).v)) continue;
+        const res = at(r, c + 4).v, giocata = isScore(res);
+        partite.push({ ...base, casa: clean(casa), trasferta: clean(at(r, c + 3).v), risultato: giocata ? res : null,
+          ...(giocata ? { punti_casa: num(at(r, c + 1).v), punti_trasferta: num(at(r, c + 2).v) } : {}), ref });
       }
     }
-    return out.sort((a, b) => a.giornata - b.giornata);
+    return { competizione, partite: partite.sort((x, y) => x.giornata - y.giornata) };
+  }
+  // { competizione, partite } — competizione dal titolo del file ("Calendario MagnaChampions")
+  async function fdImportCalendarioCompleto(buf, fname) {
+    const { at, maxRow, maxCol } = await readSheet(buf);
+    return parseCalendario(at, maxRow, maxCol, fname);
+  }
+  // solo le partite (come prima, per il campionato)
+  async function fdImportCalendario(buf, fname) {
+    return (await fdImportCalendarioCompleto(buf, fname)).partite;
   }
 
   // Classifica (come parse_standings)
@@ -380,6 +415,8 @@
   root.fdVerifica = fdVerifica;
   root.fdImportFormazioni = fdImportFormazioni;
   root.fdImportCalendario = fdImportCalendario;
+  root.fdImportCalendarioCompleto = fdImportCalendarioCompleto;
+  root.fdParseCalendario = parseCalendario;
   root.fdImportClassifica = fdImportClassifica;
   root.fdImportRose = fdImportRose;
   if (typeof module !== "undefined") module.exports = { fdImportFormazioni, fdImportCalendario, fdImportClassifica, fdImportRose, fdRiconosci, fdVerifica };
